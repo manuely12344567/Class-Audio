@@ -16,7 +16,7 @@ Mis à jour le 15 novembre 2026.
 - La découverte Android est prévue en deux étapes : mDNS `_classeaudio._tcp.local`, puis balayage HTTP borné des sous-réseaux Wi-Fi/Ethernet actifs (jusqu'à trois interfaces, 512 hôtes candidates et 32 requêtes simultanées) en validant `GET /api/v1/session`. Le code n'est envoyé qu'après détection. La logique s'inspire du scan par étapes de LocalSend, sans utiliser ses routes de transfert de fichiers.
 - La release v1.0.0 et son APK restent inchangés; aucune nouvelle release/tag n'est prévue avant les essais sur appareils. La preview reconstruite est `ClasseAudio-Android-preview-debug.apk` (signature debug, non testée sur appareil).
 - L'APK preview a passé `:app:assembleDebug` avec le SDK Android 35; package `com.classeaudio.app.debug`, label `ClasseAudio`, SHA-256 `018586ed2677064c2b4a50220c24cba9fead84786b4c04908ad462840e45fbec`.
-- Le build WPF avait réussi sous Linux avec `EnableWindowsTargeting=true` (0 erreur, 0 avertissement) avant une dernière modification de palette dans `App.xaml`; cette modification n'a pas été recompilée localement et doit être confirmée par le workflow Windows.
+- Les workflows GitHub Actions Android et Windows ont réussi pour le commit `c91cff8` ([Android](https://github.com/manuely12344567/Class-Audio/actions/runs/45510596353), [Windows](https://github.com/manuely12344567/Class-Audio/actions/runs/45510596368)); les workflows ont produit leurs artefacts téléchargeables. Le build Windows inclut la dernière modification de palette dans `App.xaml`.
 
 ## État technique conservé
 
@@ -29,7 +29,7 @@ Mis à jour le 15 novembre 2026.
 
 ## Validations encore requises
 
-- L'APK Android debug preview a été assemblé localement; il n'a pas été installé/testé sur téléphone. Le build WPF avait réussi avant le dernier ajustement de palette dans `App.xaml`; la CI Windows doit confirmer le résultat après cette modification. L'hôte n'a pas été lancé sur Windows.
+- Les builds Android et Windows ont réussi sur GitHub Actions pour le commit `c91cff8`; l'APK n'a pas été installé/testé sur téléphone et l'hôte Windows n'a pas été exécuté sur un PC réel.
 - La v1.0.0 s'est connectée sur un appareil selon le retour utilisateur, mais la découverte automatique de cette version a échoué dans son environnement et a nécessité l'URL manuelle.
 - La découverte mDNS, le balayage réseau et le pare-feu doivent être retestés sur le vrai réseau de la salle après reconstruction.
 - Deux téléphones ou plus restent nécessaires pour vérifier l'écoute, les demandes de parole, l'autorisation/révocation et le routage audio réel.
@@ -39,7 +39,7 @@ Mis à jour le 15 novembre 2026.
 
 1. Installer `ClasseAudio-Android-preview-debug.apk` sur le téléphone (désinstaller la précédente app debug si Android refuse la mise à jour à cause de sa signature).
 2. Avec le PC hôte et ce seul téléphone sur le même Wi-Fi, saisir le code uniquement et retester mDNS puis le balayage HTTP de secours; les changements de découverte n'exigent pas plusieurs téléphones.
-3. Vérifier les workflows Android/Windows déclenchés par les changements de source; télécharger leurs artefacts et valider le tableau de bord Windows ainsi que le bouton qui copie uniquement le code.
+3. Télécharger l'artefact Windows du workflow réussi, lancer l'hôte sur un PC réel et vérifier le tableau de bord ainsi que le bouton qui copie uniquement le code; conserver l'APK preview pour l'essai mobile.
 4. Lorsque d'autres téléphones seront disponibles, tester l'audio, les demandes de parole, l'autorisation et la révocation. Ne pas publier de nouvelle release avant validation utilisateur; TLS/pinning et tests de charge restent nécessaires avant tout pilote.
 
 Aucun identifiant utilisateur n'est inclus dans le dépôt. Les identifiants LiveKit sont générés localement pour chaque session.
