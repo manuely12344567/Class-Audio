@@ -93,15 +93,8 @@ public partial class MainWindow : Window
         var session = _host.CurrentSession;
         if (session is null) return;
 
-        var text = string.Join(Environment.NewLine,
-            "ClasseAudio — connexion manuelle",
-            $"Adresse du relais : ws://{session.PrimaryHost}:{SessionHost.LiveKitPort}",
-            $"Adresse de découverte/API : http://{session.PrimaryHost}:{SessionHost.ApiPort}",
-            $"Code de classe : {session.JoinCode}",
-            "Découverte mDNS : _classeaudio._tcp.local",
-            "Le PIN professeur est affiché séparément sur le PC; ne le partagez pas avec les élèves.");
-        Clipboard.SetText(text);
-        AddLog("Informations de connexion copiées dans le presse-papiers.");
+        Clipboard.SetText(session.JoinCode);
+        AddLog("Code élève copié. Partagez uniquement ce code; gardez le PIN professeur privé.");
     }
 
     private async Task RefreshDashboardAsync()
@@ -146,7 +139,7 @@ public partial class MainWindow : Window
         TeacherPinText.Text = session.TeacherPin;
         var host = session.PrimaryHost;
         ServerAddressText.Text = $"Relais : ws://{host}:{SessionHost.LiveKitPort}\nDécouverte/API : http://{host}:{SessionHost.ApiPort}";
-        MdnsText.Text = "_classeaudio._tcp.local  ·  port 8090";
+        MdnsText.Text = "mDNS + recherche directe · port API 8090";
         SummaryText.Text = $"Salon local {session.RoomName}. Les codes sont à transmettre uniquement aux participants de cette classe.";
     }
 
@@ -155,7 +148,7 @@ public partial class MainWindow : Window
         JoinCodeText.Text = "— — — — — —";
         TeacherPinText.Text = "— — — — — —";
         ServerAddressText.Text = "—";
-        MdnsText.Text = "_classeaudio._tcp.local";
+        MdnsText.Text = "mDNS + recherche directe · en attente";
     }
 
     private void AddLog(string message)

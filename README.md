@@ -1,10 +1,10 @@
-# ClasseAudio — prototype hôte Windows local
+# ClasseAudio — hôte Windows local et clients Android
 
-**État : prototype de l'hôte PC, pas encore un produit installable validé.** Le dépôt est séparé de `/home/user/pocketpad` : PocketPad est une application de manettes/écran partagé, sans rapport avec la sonorisation de classe, et n'a pas été modifié.
+**État : la release v1.0.0 reste la dernière release. L'itération design/découverte est en cours de validation; l'APK de prévisualisation a été compilé, mais n'a pas encore été testé sur téléphone. Aucune nouvelle release ou tag ne sera créé avant validation sur appareils.** PocketPad est un autre projet et n'a pas été modifié.
 
 ## But de cette première étape
 
-Le PC Windows de la salle lance un relais LiveKit local et affiche son état. Le serveur reste dans le réseau de la classe; aucune connexion à LiveKit Cloud ou à un autre serveur permanent n'est prévue. Un premier client Android professeur/élève a été ajouté, mais reste un prototype à tester sur téléphone et réseau réels.
+Le PC Windows de la salle lance un relais LiveKit local et affiche son état. Le serveur reste dans le réseau de la classe; aucune connexion à LiveKit Cloud ou à un autre serveur permanent n'est prévue. Les applications Windows et Android partagent désormais une identité visuelle au mégaphone. Côté Android, le parcours normal demande le code de classe; l'adresse reste cachée dans les options de dépannage.
 
 Le prototype expose déjà une API locale prévue pour ces clients :
 
@@ -20,7 +20,7 @@ La publication des élèves est refusée explicitement dans leur JWT, y compris 
 
 ## Découverte et ports prévus
 
-L'hôte annonce le service DNS-SD/mDNS **`_classeaudio._tcp.local`** sur le port TCP `8090`. Le tableau de bord fournit aussi une adresse IP et un code de classe pour la saisie manuelle lorsque le multicast ou la découverte sont filtrés.
+L'hôte annonce le service DNS-SD/mDNS **`_classeaudio._tcp.local`** sur le port TCP `8090`. L'application Android cherche d'abord ce service, puis, sans réponse, balaie de façon bornée les sous-réseaux IPv4 Wi-Fi/Ethernet actifs via `GET /api/v1/session` (jusqu'à trois interfaces, 512 hôtes, 32 requêtes simultanées). Cette approche reprend le balayage par étapes de LocalSend sans implémenter son protocole de transfert de fichiers. Le code de classe n'est envoyé qu'une fois l'hôte trouvé; l'adresse est masquée dans l'interface normale et réservée au dépannage.
 
 | Usage | Port | Protocole |
 |---|---:|---|
@@ -36,9 +36,9 @@ Le serveur est configuré avec `7882/UDP` et `7881/TCP` comme candidat de repli,
 
 ## Artefacts compilés et état de persistance
 
-- L'APK Android de test `ClasseAudio-Android-debug.apk` est présent localement dans ce workspace (package `com.classeaudio.app.debug`, version `0.1.0-debug`, application **ClasseAudio Test**). Il est signé avec une clé debug, vérifié avec `apksigner`, et n'est pas destiné à Play Store. Le fichier APK est ignoré par Git; le workflow CI le génère et le téléverse. `SHA256SUMS.txt` contient le SHA-256 du binaire LiveKit versionné.
+- L'APK v1 original est disponible dans la [release GitHub v1.0.0](https://github.com/manuely12344567/Class-Audio/releases/tag/v1.0.0). La preview locale `ClasseAudio-Android-preview-debug.apk` contient le nouveau logo et la nouvelle découverte (package `com.classeaudio.app.debug`, version `0.1.0-debug`, label **ClasseAudio**); elle est signée en debug, non destinée au Play Store et pas encore testée sur un téléphone. Selon la signature de l'ancienne app, désinstallez-la si Android refuse la mise à jour. `SHA256SUMS.txt` contient le SHA-256 du binaire LiveKit versionné.
 - Le build Windows x64 avait réussi, mais l'EXE généré n'est pas versionné dans le dépôt. Le code source et `runtime/livekit-server.exe` sont conservés; le workflow Windows ci-dessous le recrée et le téléverse comme artefact téléchargeable.
-- Le build Android a réussi après correction des imports LiveKit/AudioSwitch, de l'écoute des événements et de la propriété de défilement. Deux avertissements NSD dépréciés subsistent. Une tentative ultérieure de rebuild complet après `clean` a été interrompue par la limite mémoire pendant `packageDebug`; l'APK conservé est issu du build réussi et sa signature a été vérifiée. Il n'a pas été installé/testé sur téléphone (micro, Bluetooth, réseau et audio restent à valider).
+- L'APK preview a passé `:app:assembleDebug` localement avec le SDK Android 35; quelques avertissements de dépréciation Android NSD subsistent. Le build WPF avec `EnableWindowsTargeting=true` avait réussi avant une dernière modification de palette dans `App.xaml`; cette modification n'a pas été recompilée localement et doit être confirmée par le workflow Windows. Ni l'APK preview ni l'EXE n'ont été exécutés depuis cette itération sur un appareil/PC réel; réseau, micro, Bluetooth, écoute et écho restent à valider.
 
 ## Builds sur GitHub Actions
 

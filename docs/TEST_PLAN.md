@@ -9,12 +9,15 @@ Aucun test ci-dessous n'est déclaré réussi à ce jour.
 - Vérifier les journaux en cas de ports déjà occupés ou de refus pare-feu.
 - Confirmer que le cours fonctionne sans accès Internet une fois l'application installée.
 
-## 1. Réseau local, deux téléphones
+## 1. Découverte réseau et connexion
 
-- PC et téléphones sur le même SSID et le même sous-réseau.
-- Découvrir `_classeaudio._tcp.local`; refaire le test avec multicast bloqué et saisir l'IP/port manuellement.
+- PC et téléphone sur le même Wi-Fi privé/sous-réseau; l'hôte Windows est démarré.
+- Recompiler l'APK après les évolutions de découverte. Saisir le code et appuyer sur **Rejoindre avec ce code** sans saisir d'URL : le client doit chercher le service mDNS `_classeaudio._tcp.local`, puis utiliser le balayage HTTP borné si mDNS ne trouve rien.
+- Vérifier que l'API `/api/v1/session` est seulement sollicitée pour confirmer l'hôte; le code de classe ne doit être envoyé qu'après la découverte et aucune URL n'est affichée/copier par défaut.
+- Vérifier le bouton de recherche, l'état « adresse masquée », le panneau manuel replié et le bouton Windows **Copier le code** (qui ne copie que le code élève, jamais le PIN ni l'adresse technique).
+- Pour tester la méthode de secours, bloquer temporairement le multicast sur un réseau de banc ou observer le statut de balayage; si mDNS et le scan direct sont bloqués, le panneau de dépannage doit toujours permettre l'IP/port manuels.
 - Vérifier 7880/TCP, 7881/TCP, 7882/UDP et 8090/TCP sur le profil Pare-feu Windows **Privé seulement**.
-- Tester aussi le cas d'isolation des clients, VLAN ou réseau invité; documenter clairement les cas où aucune connexion directe n'est possible.
+- Tester aussi le cas d'isolation des clients, VLAN ou réseau invité; documenter clairement les cas où aucune connexion directe n'est possible. Une seule paire PC + téléphone suffit à vérifier la découverte; deux téléphones sont nécessaires pour valider le flux audio et la modération.
 
 ## 2. Routage et permissions audio
 

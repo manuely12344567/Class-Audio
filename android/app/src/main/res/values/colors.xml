@@ -1,0 +1,8 @@
+<resources>
+    <color name="brand_teal">#0F766E</color>
+    <color name="brand_navy">#123044</color>
+    <color name="brand_amber">#FFD28A</color>
+    <color name="surface_background">#F4F7FA</color>
+    <color name="text_primary">#173247</color>
+    <color name="text_secondary">#627789</color>
+</resources>

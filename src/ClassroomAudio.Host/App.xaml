@@ -3,10 +3,10 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              StartupUri="MainWindow.xaml">
     <Application.Resources>
-        <SolidColorBrush x:Key="InkBrush" Color="#16263A" />
-        <SolidColorBrush x:Key="MutedBrush" Color="#607286" />
-        <SolidColorBrush x:Key="AccentBrush" Color="#176B5B" />
-        <SolidColorBrush x:Key="PageBrush" Color="#F3F6F8" />
+        <SolidColorBrush x:Key="InkBrush" Color="#173247" />
+        <SolidColorBrush x:Key="MutedBrush" Color="#627789" />
+        <SolidColorBrush x:Key="AccentBrush" Color="#0F766E" />
+        <SolidColorBrush x:Key="PageBrush" Color="#F4F7FA" />
         <SolidColorBrush x:Key="CardBrush" Color="#FFFFFF" />
     </Application.Resources>
 </Application>

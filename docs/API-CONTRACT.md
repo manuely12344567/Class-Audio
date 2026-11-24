@@ -1,14 +1,19 @@
 # API locale — contrat prototype
 
-Base URL annoncée par mDNS ou saisie manuelle : `http://<IP-du-PC>:8090`.
+Base de l'API locale : `http://<IP-du-PC>:8090`.
 Le service WebRTC LiveKit est renvoyé par `GET /api/v1/session` sous la forme `ws://<IP-du-PC>:7880`.
-Ces URL ne sont pas chiffrées : usage de banc d'essai sur réseau privé isolé uniquement.
+Ces URL ne sont pas chiffrées : usage de banc d'essai sur réseau privé isolé uniquement. L'application mobile les découvre; l'élève n'a normalement à saisir que le code de classe.
 
-## Découverte
+## Découverte automatique
 
-`GET /api/v1/session` renvoie `serviceName`, `serviceType`, `room`, `liveKitUrl`, `apiPort`, `joinPath` et `hostAddress`. La réponse ne contient ni code de classe, ni PIN, ni secret API.
+`GET /api/v1/session` renvoie `serviceName`, `serviceType`, `room`, `liveKitUrl`, `apiPort`, `joinPath` et `hostAddress`. La réponse ne contient ni code de classe, ni PIN, ni secret API. Elle sert à confirmer qu'un hôte découvert est bien une instance ClasseAudio.
 
-mDNS : type `_classeaudio._tcp.local`, port TCP `8090`. La résolution mDNS fournit l'hôte; Android doit ensuite appeler l'endpoint de session.
+La découverte Android suit deux étapes, inspirées de l'approche « smart scan » de LocalSend :
+
+1. Recherche DNS-SD/mDNS du type `_classeaudio._tcp.local` (port API TCP `8090`).
+2. Si aucun hôte n'est confirmé après une courte attente, balayage HTTP borné des sous-réseaux IPv4 Wi-Fi/Ethernet actifs, avec `GET /api/v1/session` sur le port `8090`. La version Android limite le balayage à trois interfaces et 512 adresses candidates, avec un maximum de 32 requêtes en parallèle. Aucun code de classe ni PIN n'est envoyé pendant la découverte.
+
+La méthode HTTP de secours est spécifique à ClasseAudio : il s'agit de reprendre la stratégie multi-méthodes de LocalSend, pas d'implémenter les routes de transfert de fichiers LocalSend. Si mDNS et le balayage direct échouent (isolation Wi-Fi, pare-feu, VLAN ou sous-réseau inhabituel), la saisie manuelle reste disponible dans les options de dépannage.
 
 ## Rejoindre la session
 
