@@ -54,6 +54,40 @@ public sealed class LocalApiHost : IAsyncDisposable
             }
         });
 
+        app.MapPost("/api/v1/teacher/activate", async (HttpContext context, CancellationToken ct) =>
+        {
+            if (!coordinator.TryAuthenticate(context.Request.Headers.Authorization.ToString(), out var caller) || caller is null)
+                return Results.Unauthorized();
+            if (caller.Role != "teacher")
+                return Results.StatusCode(StatusCodes.Status403Forbidden);
+
+            try
+            {
+                return ToHttpResult(await coordinator.ActivateTeacherAsync(caller, ct));
+            }
+            catch (Exception ex) when (ex is HttpRequestException or InvalidOperationException)
+            {
+                return Results.Json(new { error = ex.Message }, statusCode: StatusCodes.Status503ServiceUnavailable);
+            }
+        });
+
+        app.MapPost("/api/v1/teacher/deactivate", async (HttpContext context, CancellationToken ct) =>
+        {
+            if (!coordinator.TryAuthenticate(context.Request.Headers.Authorization.ToString(), out var caller) || caller is null)
+                return Results.Unauthorized();
+            if (!coordinator.IsActiveTeacher(caller))
+                return Results.StatusCode(StatusCodes.Status403Forbidden);
+
+            try
+            {
+                return ToHttpResult(await coordinator.DeactivateTeacherAsync(caller, ct));
+            }
+            catch (Exception ex) when (ex is HttpRequestException or InvalidOperationException)
+            {
+                return Results.Json(new { error = ex.Message }, statusCode: StatusCodes.Status503ServiceUnavailable);
+            }
+        });
+
         app.MapPost("/api/v1/speaking/request", (HttpContext context) =>
         {
             if (!coordinator.TryAuthenticate(context.Request.Headers.Authorization.ToString(), out var caller) || caller is null)
@@ -69,7 +103,7 @@ public sealed class LocalApiHost : IAsyncDisposable
         {
             if (!coordinator.TryAuthenticate(context.Request.Headers.Authorization.ToString(), out var caller) || caller is null)
                 return Results.Unauthorized();
-            if (caller.Role != "teacher")
+            if (!coordinator.IsActiveTeacher(caller))
                 return Results.StatusCode(StatusCodes.Status403Forbidden);
             return Results.Ok(coordinator.GetSpeakingRequests());
         });
@@ -78,7 +112,7 @@ public sealed class LocalApiHost : IAsyncDisposable
         {
             if (!coordinator.TryAuthenticate(context.Request.Headers["Authorization"].ToString(), out var caller) || caller is null)
                 return Results.Unauthorized();
-            if (caller.Role != "teacher")
+            if (!coordinator.IsActiveTeacher(caller))
                 return Results.StatusCode(StatusCodes.Status403Forbidden);
 
             try
@@ -95,7 +129,7 @@ public sealed class LocalApiHost : IAsyncDisposable
         {
             if (!coordinator.TryAuthenticate(context.Request.Headers.Authorization.ToString(), out var caller) || caller is null)
                 return Results.Unauthorized();
-            if (caller.Role != "teacher")
+            if (!coordinator.IsActiveTeacher(caller))
                 return Results.StatusCode(StatusCodes.Status403Forbidden);
 
             return ToHttpResult(await coordinator.GrantSpeakerAsync(identity, ct));
@@ -105,7 +139,7 @@ public sealed class LocalApiHost : IAsyncDisposable
         {
             if (!coordinator.TryAuthenticate(context.Request.Headers.Authorization.ToString(), out var caller) || caller is null)
                 return Results.Unauthorized();
-            if (caller.Role != "teacher")
+            if (!coordinator.IsActiveTeacher(caller))
                 return Results.StatusCode(StatusCodes.Status403Forbidden);
 
             return ToHttpResult(await coordinator.RevokeSpeakerAsync(identity, ct));

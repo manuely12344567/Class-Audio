@@ -43,19 +43,29 @@ Réponse (champs illustratifs, valeurs générées à chaque session) :
 }
 ```
 
-Un élève reçoit explicitement `canPublish:false` et `canPublishData:false`. Le professeur peut publier uniquement une piste microphone. Les identités LiveKit sont opaques; le nom affiché reste dans l'hôte local.
+Tous les jetons de jointure sont explicitement en lecture seule (`canPublish:false`, `canPublishData:false`). Après la connexion LiveKit, le professeur appelle `POST /api/v1/teacher/activate`; l'hôte vérifie que ce participant est dans la room puis active côté serveur son seul droit de publier le microphone. L'hôte n'autorise qu'un professeur actif et, séparément, un seul élève. Les identités LiveKit sont opaques; le nom affiché reste dans l'hôte local.
 
 ## Contrôles de parole
 
 Toutes les routes ci-dessous demandent `Authorization: Bearer <controlToken>`.
 
+- Professeur : `POST /api/v1/teacher/activate` après connexion LiveKit; le serveur autorise le micro d'un seul professeur à la fois.
+- Professeur : `POST /api/v1/teacher/deactivate` avant de quitter; le serveur retire le droit du professeur et de l'élève actif.
 - Élève : `POST /api/v1/speaking/request` pour demander la parole.
-- Professeur : `GET /api/v1/speaking/requests` pour voir les demandes.
-- Professeur : `GET /api/v1/participants` pour obtenir l'état du salon.
-- Professeur : `POST /api/v1/speakers/{identity}/allow` pour permettre au demandeur de publier son microphone.
-- Professeur : `POST /api/v1/speakers/{identity}/revoke` pour lui retirer le droit.
+- Professeur actif : `GET /api/v1/speaking/requests` pour voir les demandes.
+- Professeur actif : `GET /api/v1/participants` pour obtenir l'état du salon.
+- Professeur actif : `POST /api/v1/speakers/{identity}/allow` pour permettre au demandeur de publier son microphone.
+- Professeur actif : `POST /api/v1/speakers/{identity}/revoke` pour lui retirer le droit.
 
-L'hôte refuse une deuxième autorisation tant qu'un élève est déjà actif. Le droit `canPublish` est modifié côté LiveKit; l'application Android ne doit pas se fier à une simple règle d'interface.
+L'hôte sérialise les changements de permission et refuse une seconde autorisation élève tant qu'un élève est actif. Le tableau de bord Windows revalide périodiquement les participants; si le professeur disparaît, l'hôte retire le droit de publication d'un élève encore connecté avant de libérer les rôles. Les jetons seuls ne permettent à aucun client de contourner ces règles : le droit `canPublish` est modifié côté LiveKit; l'interface Android ne constitue pas la protection.
+
+## Audio Android — réglages et diagnostic
+
+- La publication vocale utilise le preset LiveKit Android `AudioPresets.SPEECH` de la version `2.29.0`, soit `24 000 bit/s` (24 kbit/s, et non kB/s), avec DTX et RED activés. C'est le débit cible du média audio, pas une promesse sur le débit total du Wi-Fi.
+- Les options de capture WebRTC d'annulation d'écho, contrôle automatique du gain, filtre passe-haut et réduction du bruit restent activées par défaut. La réduction du bruit peut être désactivée sur le téléphone; le gain micro est un réglage numérique borné à 50–150 %.
+- Le volume reçu est appliqué à chaque piste audio distante LiveKit sur le téléphone (0–200 %); il ne modifie pas le volume physique Android.
+- L'écran de diagnostic relève les abonnements et échecs de piste, les états muets, les orateurs détectés, la qualité réseau et la sortie audio choisie. Le panneau du professeur résume aussi, pour chaque participant, l'état LiveKit, le droit de publication et le nombre de pistes publiées. Un abonnement confirmé ne garantit pas à lui seul que le haut-parleur de l'appareil émet un son audible.
+- Le PC Windows héberge la signalisation/API locale et le relais LiveKit. Le débit cible et le traitement micro sont configurés par le client Android; aucun encodage ou DSP micro côté PC n'est prévu dans ce prototype. Une connexion Wi-Fi dégradée peut toujours provoquer coupures et reconnexions.
 
 ## Limites de sécurité du prototype
 

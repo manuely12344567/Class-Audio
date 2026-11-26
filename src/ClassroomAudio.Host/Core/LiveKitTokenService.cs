@@ -13,7 +13,7 @@ public sealed class LiveKitTokenService(SessionOptions options)
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
-    public string CreateParticipantToken(string identity, bool isTeacher)
+    public string CreateParticipantToken(string identity)
     {
         var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         var videoGrant = new Dictionary<string, object?>
@@ -21,15 +21,13 @@ public sealed class LiveKitTokenService(SessionOptions options)
             ["roomJoin"] = true,
             ["room"] = options.RoomName,
             ["canSubscribe"] = true,
-            ["canPublish"] = isTeacher,
+            ["canPublish"] = false,
             ["canPublishData"] = false
         };
 
-        // Teachers may publish a microphone track. Students are explicitly
-        // subscribe-only until the teacher changes their permission server-side.
-        if (isTeacher)
-            videoGrant["canPublishSources"] = new[] { "microphone" };
-
+        // Every join token is subscribe-only. The host grants microphone
+        // permission server-side to exactly one active teacher and, separately,
+        // at most one student speaker.
         var payload = new Dictionary<string, object?>
         {
             ["iss"] = options.ApiKey,

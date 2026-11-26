@@ -23,7 +23,9 @@ import android.widget.EditText
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
+import android.widget.SeekBar
 import android.widget.Spinner
+import android.widget.Switch
 import android.widget.TextView
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
@@ -32,11 +34,20 @@ import androidx.lifecycle.lifecycleScope
 import io.livekit.android.AudioOptions
 import io.livekit.android.LiveKit
 import io.livekit.android.LiveKitOverrides
+import io.livekit.android.RoomOptions
 import com.twilio.audioswitch.AudioDevice
+import io.livekit.android.audio.AudioProcessorOptions
 import io.livekit.android.audio.AudioSwitchHandler
 import io.livekit.android.events.RoomEvent
 import io.livekit.android.events.collect
 import io.livekit.android.room.Room
+import io.livekit.android.room.participant.AudioPresets
+import io.livekit.android.room.participant.AudioTrackPublishDefaults
+import io.livekit.android.room.participant.Participant
+import io.livekit.android.room.track.LocalAudioTrack
+import io.livekit.android.room.track.LocalAudioTrackOptions
+import io.livekit.android.room.track.RemoteAudioTrack
+import io.livekit.android.room.track.Track
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
@@ -48,6 +59,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
@@ -78,6 +90,13 @@ class MainActivity : ComponentActivity() {
     private lateinit var disconnectButton: Button
     private lateinit var advancedToggle: TextView
     private lateinit var advancedPanel: LinearLayout
+    private lateinit var audioSettingsCard: LinearLayout
+    private lateinit var receivedVolumeLabel: TextView
+    private lateinit var receivedVolumeSeekBar: SeekBar
+    private lateinit var microphoneGainLabel: TextView
+    private lateinit var microphoneGainSeekBar: SeekBar
+    private lateinit var noiseSuppressionSwitch: Switch
+    private lateinit var audioDiagnosticsText: TextView
 
     private var room: Room? = null
     private var roomEventsJob: Job? = null
@@ -90,6 +109,14 @@ class MainActivity : ComponentActivity() {
     private var studentCanPublish = false
     private var microphoneEnabled = false
     private var lastTeacherSnapshot: JSONObject? = null
+    private var microphoneGainProcessor: MicrophoneGainProcessor? = null
+    private var microphoneGainPercent = 100
+    private var receivedVolumePercent = 100
+    private var noiseSuppressionEnabled = true
+    private var teacherPermissionWaiter: CompletableDeferred<Boolean>? = null
+    @Volatile private var lastAudioEvent = "Aucune piste distante reçue pour l'instant."
+    @Volatile private var activeSpeakersSummary = "Aucun orateur détecté."
+    @Volatile private var connectionQualitySummary = "Qualité réseau : en attente."
     private var pendingPermissionAction: ((Map<String, Boolean>) -> Unit)? = null
 
     private lateinit var nsdManager: NsdManager
@@ -113,6 +140,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        loadAudioPreferences()
         nsdManager = getSystemService(Context.NSD_SERVICE) as NsdManager
         buildUi()
         setStatus("Prêt. Saisissez le code de classe; l'application cherchera le PC automatiquement.")
@@ -274,6 +302,78 @@ class MainActivity : ComponentActivity() {
         micButton.setOnClickListener { toggleMicrophone() }
         disconnectButton.setOnClickListener { disconnectFromRoom() }
 
+        audioSettingsCard = card(18)
+        audioSettingsCard.addView(text("Réglages audio", 18f, true, 0xFF123044.toInt()))
+        audioSettingsCard.addView(text(
+            "Le volume reçu et le gain micro s'appliquent à cet appareil. La réduction du bruit est activée par défaut; l'annulation d'écho et le contrôle automatique du gain restent actifs.",
+            12f,
+            false,
+            0xFF627789.toInt()
+        ))
+        receivedVolumeLabel = text("", 13f, true, 0xFF173247.toInt())
+        receivedVolumeSeekBar = SeekBar(this).apply {
+            max = 200
+            progress = receivedVolumePercent.coerceIn(0, 200)
+        }
+        audioSettingsCard.addView(receivedVolumeLabel, matchWrap())
+        audioSettingsCard.addView(receivedVolumeSeekBar, matchWrap())
+
+        microphoneGainLabel = text("", 13f, true, 0xFF173247.toInt())
+        microphoneGainSeekBar = SeekBar(this).apply {
+            max = 100
+            progress = (microphoneGainPercent - 50).coerceIn(0, 100)
+        }
+        audioSettingsCard.addView(microphoneGainLabel, matchWrap())
+        audioSettingsCard.addView(microphoneGainSeekBar, matchWrap())
+        audioSettingsCard.addView(text(
+            "100 % = niveau normal. Un gain supérieur peut saturer la voix.",
+            11f,
+            false,
+            0xFF718596.toInt()
+        ))
+
+        noiseSuppressionSwitch = Switch(this).apply {
+            text = "Réduction du bruit"
+            textSize = 14f
+            isChecked = noiseSuppressionEnabled
+            setTextColor(0xFF173247.toInt())
+        }
+        audioSettingsCard.addView(noiseSuppressionSwitch, matchWrap())
+        audioDiagnosticsText = text("Diagnostic audio : en attente de connexion.", 12f, false, 0xFF496476.toInt()).apply {
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            background = rounded(0xFFF0F6F7.toInt(), 14)
+        }
+        audioSettingsCard.addView(audioDiagnosticsText, matchWrap())
+        updateAudioSettingsLabels()
+
+        receivedVolumeSeekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar, progress: Int, fromUser: Boolean) {
+                receivedVolumePercent = progress.coerceIn(0, 200)
+                updateAudioSettingsLabels()
+                applyRemoteAudioVolume()
+            }
+
+            override fun onStartTrackingTouch(seekBar: SeekBar) = Unit
+
+            override fun onStopTrackingTouch(seekBar: SeekBar) = saveAudioPreferences()
+        })
+        microphoneGainSeekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar, progress: Int, fromUser: Boolean) {
+                microphoneGainPercent = (50 + progress).coerceIn(50, 150)
+                microphoneGainProcessor?.setGainPercent(microphoneGainPercent)
+                updateAudioSettingsLabels()
+            }
+
+            override fun onStartTrackingTouch(seekBar: SeekBar) = Unit
+
+            override fun onStopTrackingTouch(seekBar: SeekBar) = saveAudioPreferences()
+        })
+        noiseSuppressionSwitch.setOnCheckedChangeListener { _, isChecked ->
+            applyNoiseSuppressionSetting(isChecked)
+        }
+        audioSettingsCard.visibility = View.GONE
+        content.addView(audioSettingsCard, matchWrap())
+
         teacherPanel = card(18)
         teacherPanel.addView(text("Demandes de parole", 18f, true, 0xFF123044.toInt()))
         teacherPanel.addView(text("Le professeur contrôle qui peut publier son micro.", 13f, false, 0xFF627789.toInt()))
@@ -283,10 +383,111 @@ class MainActivity : ComponentActivity() {
         teacherPanel.visibility = View.GONE
 
         content.addView(spacer(12))
-        content.addView(text("Gardez l'application au premier plan pendant ce premier essai. Bluetooth, écho et réseau scolaire restent à vérifier sur les appareils réels.", 12f, false, 0xFF718596.toInt()))
+        content.addView(text("Pour limiter l'écho, éloignez les téléphones ou utilisez un casque; l'annulation dépend du modèle et de l'environnement. La qualité du Wi-Fi reste déterminante.", 12f, false, 0xFF718596.toInt()))
 
         setContentView(scroll)
     }
+
+    private fun loadAudioPreferences() {
+        val preferences = getSharedPreferences("audio_settings", Context.MODE_PRIVATE)
+        receivedVolumePercent = preferences.getInt("received_volume_percent", 100).coerceIn(0, 200)
+        microphoneGainPercent = preferences.getInt("microphone_gain_percent", 100).coerceIn(50, 150)
+        noiseSuppressionEnabled = preferences.getBoolean("noise_suppression_enabled", true)
+    }
+
+    private fun saveAudioPreferences() {
+        getSharedPreferences("audio_settings", Context.MODE_PRIVATE)
+            .edit()
+            .putInt("received_volume_percent", receivedVolumePercent)
+            .putInt("microphone_gain_percent", microphoneGainPercent)
+            .putBoolean("noise_suppression_enabled", noiseSuppressionEnabled)
+            .apply()
+    }
+
+    private fun updateAudioSettingsLabels() {
+        if (::receivedVolumeLabel.isInitialized)
+            receivedVolumeLabel.text = "Volume reçu sur cet appareil : $receivedVolumePercent %"
+        if (::microphoneGainLabel.isInitialized)
+            microphoneGainLabel.text = "Niveau du micro (gain numérique) : $microphoneGainPercent %"
+    }
+
+    private fun applyRemoteAudioVolume() {
+        val volume = receivedVolumePercent.coerceIn(0, 200) / 100.0
+        room?.remoteParticipants?.values?.forEach { participant ->
+            participant.trackPublications.values.forEach { publication ->
+                (publication.track as? RemoteAudioTrack)?.setVolume(volume)
+            }
+        }
+    }
+
+    private fun applyNoiseSuppressionSetting(enabled: Boolean) {
+        val currentRoom = room
+        if (currentRoom == null) {
+            noiseSuppressionEnabled = enabled
+            saveAudioPreferences()
+            return
+        }
+
+        val previousDefaultOptions = currentRoom.audioTrackCaptureDefaults
+        val localTrack = currentRoom.localParticipant
+            .getTrackPublication(Track.Source.MICROPHONE)?.track as? LocalAudioTrack
+        val trackOptions = localTrack?.options ?: previousDefaultOptions
+        val updatedTrackOptions = trackOptions.copy(noiseSuppression = enabled)
+        val updatedDefaultOptions = previousDefaultOptions.copy(noiseSuppression = enabled)
+        currentRoom.audioTrackCaptureDefaults = updatedDefaultOptions
+
+        if (localTrack != null) {
+            val result = localTrack.applyOptions(updatedTrackOptions)
+            if (result.isFailure) {
+                currentRoom.audioTrackCaptureDefaults = previousDefaultOptions
+                noiseSuppressionEnabled = previousDefaultOptions.noiseSuppression
+                restoreNoiseSuppressionSwitch(noiseSuppressionEnabled)
+                setStatus("Impossible d'appliquer la réduction du bruit : ${result.exceptionOrNull()?.message ?: "piste micro indisponible"}")
+                return
+            }
+        }
+
+        noiseSuppressionEnabled = enabled
+        saveAudioPreferences()
+        setStatus(if (enabled) "Réduction du bruit activée; annulation d'écho et gain automatique conservés." else "Réduction du bruit désactivée; annulation d'écho et gain automatique conservés.")
+    }
+
+    private fun restoreNoiseSuppressionSwitch(checked: Boolean) {
+        noiseSuppressionSwitch.setOnCheckedChangeListener(null)
+        noiseSuppressionSwitch.isChecked = checked
+        noiseSuppressionSwitch.setOnCheckedChangeListener { _, isChecked ->
+            applyNoiseSuppressionSetting(isChecked)
+        }
+    }
+
+    private fun updateAudioDiagnostics(message: String? = null) {
+        if (message != null) lastAudioEvent = message
+        val currentRoom = room
+        val remoteAudioPublications = currentRoom?.remoteParticipants?.values
+            ?.flatMap { participant -> participant.trackPublications.values }
+            ?.filter { publication -> publication.kind == Track.Kind.AUDIO }
+            .orEmpty()
+        val audioTrackCount = remoteAudioPublications.count { it.track is RemoteAudioTrack }
+        val mutedAudioCount = remoteAudioPublications.count { it.muted }
+        val route = currentRoom?.audioSwitchHandler?.selectedAudioDevice?.toString() ?: "non détectée"
+        val summary = buildString {
+            append("Pistes audio distantes abonnées : $audioTrackCount · muettes : $mutedAudioCount")
+            append("\nSortie audio Android : $route")
+            append("\nMicro local : ${if (microphoneEnabled) "actif" else "coupé"} · gain $microphoneGainPercent %")
+            append("\n$connectionQualitySummary")
+            append("\nVoix détectée : $activeSpeakersSummary")
+            append("\nDernier événement : $lastAudioEvent")
+        }
+        runOnUiThread {
+            if (::audioDiagnosticsText.isInitialized)
+                audioDiagnosticsText.text = summary
+        }
+    }
+
+    private fun participantDisplayName(participant: Participant): String =
+        participant.name?.takeIf { it.isNotBlank() }
+            ?: participant.identity?.value
+            ?: "participant"
 
     private fun onJoinPressed() {
         if (room != null) return
@@ -337,8 +538,11 @@ class MainActivity : ComponentActivity() {
                     localIdentity = identity
                     localRole = role
                     activeSpeakerIdentity = null
-                    studentCanPublish = role == "teacher"
+                    studentCanPublish = false
                     microphoneEnabled = false
+                    activeSpeakersSummary = "Aucun orateur détecté."
+                    connectionQualitySummary = "Qualité réseau : en attente."
+                    lastAudioEvent = "Connexion au relais en cours."
 
                     val audioSwitch = AudioSwitchHandler(applicationContext).apply {
                         loggingEnabled = true
@@ -349,9 +553,32 @@ class MainActivity : ComponentActivity() {
                             AudioDevice.Earpiece::class.java
                         )
                     }
+                    val captureDefaults = LocalAudioTrackOptions(
+                        noiseSuppression = noiseSuppressionEnabled,
+                        echoCancellation = true,
+                        autoGainControl = true,
+                        highPassFilter = true,
+                        typingNoiseDetection = true
+                    )
+                    val gainProcessor = MicrophoneGainProcessor(microphoneGainPercent)
+                    microphoneGainProcessor = gainProcessor
                     val newRoom = LiveKit.create(
                         appContext = applicationContext,
-                        overrides = LiveKitOverrides(audioOptions = AudioOptions(audioHandler = audioSwitch))
+                        options = RoomOptions(
+                            audioTrackCaptureDefaults = captureDefaults,
+                            audioTrackPublishDefaults = AudioTrackPublishDefaults(
+                                audioBitrate = AudioPresets.SPEECH.maxBitrate,
+                                dtx = true,
+                                red = true,
+                                preconnect = false
+                            )
+                        ),
+                        overrides = LiveKitOverrides(
+                            audioOptions = AudioOptions(
+                                audioHandler = audioSwitch,
+                                audioProcessorOptions = AudioProcessorOptions(capturePostProcessor = gainProcessor)
+                            )
+                        )
                     )
                     room = newRoom
                     roomEventsJob?.cancel()
@@ -362,7 +589,19 @@ class MainActivity : ComponentActivity() {
                     setStatus("Connexion au relais audio local…")
                     newRoom.connect(liveKitUrl, accessToken)
                     if (role == "teacher") {
-                        newRoom.localParticipant.setMicrophoneEnabled(true)
+                        val permissionWaiter = CompletableDeferred<Boolean>()
+                        teacherPermissionWaiter = permissionWaiter
+                        try {
+                            requestJson("POST", "$base/api/v1/teacher/activate", null, issuedControlToken)
+                            val permissionGranted = withTimeoutOrNull(5000L) { permissionWaiter.await() } ?: false
+                            if (!permissionGranted)
+                                throw IOException("Le serveur n'a pas confirmé le droit micro du professeur.")
+                        } finally {
+                            if (teacherPermissionWaiter === permissionWaiter)
+                                teacherPermissionWaiter = null
+                        }
+                        if (!newRoom.localParticipant.setMicrophoneEnabled(true))
+                            throw IOException("LiveKit n'a pas pu activer le microphone du professeur.")
                         microphoneEnabled = true
                     }
 
@@ -374,15 +613,24 @@ class MainActivity : ComponentActivity() {
                     micButton.visibility = View.VISIBLE
                     disconnectButton.visibility = View.VISIBLE
                     teacherPanel.visibility = if (role == "teacher") View.VISIBLE else View.GONE
+                    audioSettingsCard.visibility = View.VISIBLE
                     updateMicButton()
+                    applyRemoteAudioVolume()
+                    updateAudioSettingsLabels()
+                    updateAudioDiagnostics("Connexion établie; vérification des pistes audio distantes.")
                     refreshAudioRoute()
-                    setStatus(if (role == "teacher") "Connecté comme professeur. Votre micro est transmis aux abonnés." else "Connecté comme élève. Vous écoutez la classe; votre micro reste bloqué jusqu'à autorisation.")
+                    setStatus(if (role == "teacher") "Connecté comme professeur. Votre micro est transmis; l'écoute des autres reste active." else "Connecté comme élève. Vous écoutez la classe; le micro reste bloqué jusqu'à l'autorisation du professeur.")
 
                     if (role == "teacher") startTeacherPolling()
                 } catch (ex: Exception) {
                     joinButton.isEnabled = true
                     discoverButton.isEnabled = true
                     setStatus("Connexion impossible : ${ex.message ?: ex.javaClass.simpleName}")
+                    teacherPermissionWaiter = null
+                    val cleanupToken = controlToken
+                    if (role == "teacher" && cleanupToken != null) {
+                        try { requestJson("POST", "$base/api/v1/teacher/deactivate", null, cleanupToken) } catch (_: Exception) { }
+                    }
                     roomEventsJob?.cancel()
                     roomEventsJob = null
                     try { room?.disconnect() } catch (_: Exception) { }
@@ -390,7 +638,12 @@ class MainActivity : ComponentActivity() {
                     localRole = null
                     controlToken = null
                     apiBase = null
+                    studentCanPublish = false
+                    microphoneEnabled = false
+                    microphoneGainProcessor = null
+                    audioSettingsCard.visibility = View.GONE
                     teacherPanel.visibility = View.GONE
+                    updateAudioDiagnostics("Connexion interrompue avant la fin de l'initialisation.")
                 }
             }
         }
@@ -426,18 +679,110 @@ class MainActivity : ComponentActivity() {
     private fun handleRoomEvent(event: RoomEvent) {
         when (event) {
             is RoomEvent.ParticipantPermissionsChanged -> {
-                if (event.participant === room?.localParticipant && localRole == "student") {
+                if (event.participant === room?.localParticipant) {
                     val allowed = event.newPermissions?.canPublish == true
-                    runOnUiThread {
-                        studentCanPublish = allowed
-                        updateMicButton()
-                        setStatus(if (allowed) "Le professeur vous a autorisé à parler. Appuyez sur le bouton micro lorsque vous êtes prêt." else "Le droit de parole est retiré; votre microphone est bloqué par le serveur.")
+                    if (localRole == "student") {
+                        runOnUiThread {
+                            studentCanPublish = allowed
+                            updateMicButton()
+                            setStatus(if (allowed) "Le professeur vous a autorisé à parler. Appuyez sur le bouton micro lorsque vous êtes prêt." else "Le droit de parole est retiré; votre microphone est bloqué par le serveur.")
+                        }
+                        if (!allowed && microphoneEnabled) {
+                            lifecycleScope.launch {
+                                try { room?.localParticipant?.setMicrophoneEnabled(false) } catch (_: Exception) { }
+                                microphoneEnabled = false
+                                runOnUiThread {
+                                    updateMicButton()
+                                    updateAudioDiagnostics("Le serveur a retiré le droit de publication du micro local.")
+                                }
+                            }
+                        }
+                    } else if (localRole == "teacher") {
+                        if (allowed) {
+                            teacherPermissionWaiter?.complete(true)
+                        } else if (microphoneEnabled) {
+                            lifecycleScope.launch {
+                                try { room?.localParticipant?.setMicrophoneEnabled(false) } catch (_: Exception) { }
+                                microphoneEnabled = false
+                                runOnUiThread { updateMicButton() }
+                            }
+                        }
                     }
-                    if (!allowed && microphoneEnabled) {
-                        lifecycleScope.launch {
-                            try { room?.localParticipant?.setMicrophoneEnabled(false) } catch (_: Exception) { }
-                            microphoneEnabled = false
-                            runOnUiThread { updateMicButton() }
+                }
+            }
+            is RoomEvent.TrackSubscribed -> {
+                val remoteAudio = event.track as? RemoteAudioTrack
+                if (remoteAudio != null) {
+                    remoteAudio.setVolume(receivedVolumePercent.coerceIn(0, 200) / 100.0)
+                    updateAudioDiagnostics("Piste audio de ${participantDisplayName(event.participant)} abonnée (${event.publication.sid}).")
+                }
+            }
+            is RoomEvent.TrackUnsubscribed -> {
+                if (event.track is RemoteAudioTrack)
+                    updateAudioDiagnostics("Piste audio distante désabonnée (${event.publications.sid}).")
+            }
+            is RoomEvent.TrackSubscriptionFailed -> {
+                updateAudioDiagnostics("Échec d'abonnement à la piste ${event.sid} de ${participantDisplayName(event.participant)} : ${event.exception.message ?: event.exception.javaClass.simpleName}")
+            }
+            is RoomEvent.TrackPublished -> {
+                if (event.publication.kind == Track.Kind.AUDIO)
+                    updateAudioDiagnostics("Piste audio publiée par ${participantDisplayName(event.participant)}; attente de l'abonnement.")
+            }
+            is RoomEvent.TrackUnpublished -> {
+                if (event.publication.kind == Track.Kind.AUDIO)
+                    updateAudioDiagnostics("Piste audio retirée par ${participantDisplayName(event.participant)}.")
+            }
+            is RoomEvent.TrackMuted -> {
+                if (event.publication.kind == Track.Kind.AUDIO)
+                    updateAudioDiagnostics("Piste audio de ${participantDisplayName(event.participant)} muette.")
+            }
+            is RoomEvent.TrackUnmuted -> {
+                if (event.publication.kind == Track.Kind.AUDIO)
+                    updateAudioDiagnostics("Piste audio de ${participantDisplayName(event.participant)} réactivée.")
+            }
+            is RoomEvent.TrackSubscriptionPermissionChanged -> {
+                if (event.trackPublication.kind == Track.Kind.AUDIO)
+                    updateAudioDiagnostics("Abonnement audio de ${participantDisplayName(event.participant)} : ${if (event.subscriptionAllowed) "autorisé" else "refusé"} par le serveur.")
+            }
+            is RoomEvent.TrackStreamStateChanged -> {
+                if (event.trackPublication.kind == Track.Kind.AUDIO)
+                    updateAudioDiagnostics("État du flux audio distant : ${event.streamState}.")
+            }
+            is RoomEvent.ParticipantConnected -> {
+                updateAudioDiagnostics("Participant connecté : ${participantDisplayName(event.participant)}.")
+            }
+            is RoomEvent.ParticipantDisconnected -> {
+                updateAudioDiagnostics("Participant déconnecté : ${participantDisplayName(event.participant)}.")
+            }
+            is RoomEvent.ActiveSpeakersChanged -> {
+                activeSpeakersSummary = if (event.speakers.isEmpty()) {
+                    "Aucune voix distante détectée."
+                } else {
+                    event.speakers.joinToString { speaker ->
+                        "${participantDisplayName(speaker)} (${(speaker.audioLevel * 100).toInt()} %)"
+                    }
+                }
+                updateAudioDiagnostics()
+            }
+            is RoomEvent.ConnectionQualityChanged -> {
+                connectionQualitySummary = "Qualité réseau de ${participantDisplayName(event.participant)} : ${event.quality}."
+                updateAudioDiagnostics()
+            }
+            is RoomEvent.Reconnecting -> {
+                updateAudioDiagnostics("LiveKit tente de rétablir la connexion; le réseau est instable.")
+                runOnUiThread { setStatus("Réseau instable : tentative de reconnexion. La fluidité dépend du Wi-Fi.") }
+            }
+            is RoomEvent.Reconnected -> {
+                updateAudioDiagnostics("Connexion LiveKit rétablie.")
+                runOnUiThread { setStatus("Connexion rétablie; vérification des pistes audio.") }
+                if (localRole == "teacher") {
+                    lifecycleScope.launch {
+                        try {
+                            val base = apiBase ?: return@launch
+                            val token = controlToken ?: return@launch
+                            requestJson("POST", "$base/api/v1/teacher/activate", null, token)
+                        } catch (ex: Exception) {
+                            setStatus("Reconnexion audio incomplète : ${ex.message ?: "le rôle professeur doit être réactivé"}")
                         }
                     }
                 }
@@ -481,10 +826,12 @@ class MainActivity : ComponentActivity() {
             lifecycleScope.launch {
                 try {
                     val enable = !microphoneEnabled
-                    currentRoom.localParticipant.setMicrophoneEnabled(enable)
+                    if (!currentRoom.localParticipant.setMicrophoneEnabled(enable))
+                        throw IOException("LiveKit n'a pas confirmé le changement d'état du micro.")
                     microphoneEnabled = enable
                     updateMicButton()
-                    setStatus(if (enable) "Microphone actif." else "Microphone coupé.")
+                    updateAudioDiagnostics(if (enable) "Microphone local activé; l'écoute distante reste active." else "Microphone local coupé.")
+                    setStatus(if (enable) "Microphone actif; l'écoute des autres continue." else "Microphone coupé; l'écoute des autres continue.")
                 } catch (ex: Exception) {
                     setStatus("Erreur microphone : ${ex.message ?: "inconnue"}")
                 }
@@ -526,6 +873,23 @@ class MainActivity : ComponentActivity() {
         val activeName = if (activeId == null) null else findParticipantName(participants, activeId)
 
         requestList.removeAllViews()
+        val serverStates = buildList {
+            for (index in 0 until participants.length()) {
+                val item = participants.optJSONObject(index) ?: continue
+                val name = item.optString("displayName", item.optString("identity"))
+                val role = item.optString("role", "participant")
+                val state = item.optString("state", "inconnu")
+                val canPublish = item.optBoolean("canPublish", false)
+                val tracks = item.optInt("publishedTrackCount", 0)
+                add("$name · $role · $state · micro ${if (canPublish) "autorisé" else "bloqué"} · pistes $tracks")
+            }
+        }
+        requestList.addView(text(
+            if (serverStates.isEmpty()) "État LiveKit : aucun participant listé." else "État LiveKit des publications :\\n${serverStates.joinToString("\\n")}",
+            12f,
+            false,
+            0xFF496476.toInt()
+        ))
         if (activeId != null) {
             requestList.addView(text("Orateur actif : ${activeName ?: activeId}", 14f, true, 0xFF176B5B.toInt()))
             val revoke = button("Retirer la parole")
@@ -579,8 +943,14 @@ class MainActivity : ComponentActivity() {
         roomEventsJob?.cancel()
         roomEventsJob = null
         val oldRoom = room
+        val oldRole = localRole
+        val oldApiBase = apiBase
+        val oldControlToken = controlToken
         room = null
         lifecycleScope.launch {
+            if (oldRole == "teacher" && oldApiBase != null && oldControlToken != null) {
+                try { requestJson("POST", "$oldApiBase/api/v1/teacher/deactivate", null, oldControlToken) } catch (_: Exception) { }
+            }
             try { oldRoom?.disconnect() } catch (_: Exception) { }
         }
         localRole = null
@@ -602,7 +972,10 @@ class MainActivity : ComponentActivity() {
         requestButton.visibility = View.GONE
         micButton.visibility = View.GONE
         disconnectButton.visibility = View.GONE
+        audioSettingsCard.visibility = View.GONE
         teacherPanel.visibility = View.GONE
+        microphoneGainProcessor = null
+        teacherPermissionWaiter = null
         participantText.text = ""
         detailsText.text = ""
         routeText.text = "Routage audio : en attente"
@@ -935,6 +1308,7 @@ class MainActivity : ComponentActivity() {
     private fun refreshAudioRoute() {
         val selected = room?.audioSwitchHandler?.selectedAudioDevice?.toString() ?: "sélection automatique"
         routeText.text = "Routage audio : $selected"
+        updateAudioDiagnostics()
     }
 
     private fun requestPermissionsThen(

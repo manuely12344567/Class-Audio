@@ -1,6 +1,6 @@
 # Plan de validation — ClasseAudio
 
-Aucun test ci-dessous n'est déclaré réussi à ce jour.
+Les validations de prévisualisation V2 déjà réussies sont : compilation Android `:app:assembleDebug`, tests JVM `:app:testDebugUnitTest` (5 tests), et compilation WPF .NET 10 avec ciblage Windows depuis le sandbox Linux. Elles ne valident pas l'exécution sur un PC Windows, un installateur, ni les scénarios matériels/réseau ci-dessous. Aucun test sur appareil Android n'a été réalisé.
 
 ## 0. Build et démarrage sur Windows
 
