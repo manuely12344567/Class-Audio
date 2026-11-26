@@ -38,9 +38,9 @@ Le serveur est configuré avec `7882/UDP` et `7881/TCP` comme candidat de repli,
 
 - La release v1.0.0 reste disponible [sur GitHub](https://github.com/manuely12344567/Class-Audio/releases/tag/v1.0.0).
 - La version applicative **2.0.0** utilise `versionCode=2` / `versionName=2.0.0` sur Android et `2.0.0` sur Windows. Les workflows [Android](https://github.com/manuely12344567/Class-Audio/actions/workflows/android-build.yml) (APK debug + cinq tests JVM) et [Windows](https://github.com/manuely12344567/Class-Audio/actions/workflows/windows-build.yml) ont réussi. Les artefacts sont publiés dans la [release v2.0.0](https://github.com/manuely12344567/Class-Audio/releases/tag/v2.0.0).
-- L'APK fourni est signé avec la clé debug, identifiant `com.classeaudio.app.debug`, nom `2.0.0-debug`; il est destiné aux essais, pas au Play Store. Windows fournit un installateur x64 et une archive portable contenant `ClasseAudio.exe` et `runtime/`.
+- L'APK fourni est signé avec la clé debug et utilise l'identifiant `com.classeaudio.app.debug`; il est destiné aux essais, pas au Play Store. Windows fournit un installateur x64 et une archive portable contenant `ClasseAudio.exe` et `runtime/`.
 - Le dépôt GitHub conserve `runtime/livekit-server.exe`, nécessaire au serveur local et inclus dans la distribution Windows. Les APK/EXE locaux et les dossiers de compilation ont été retirés du workspace; celui-ci conserve les sources et ressources. `SHA256SUMS.txt` conserve le hash du binaire LiveKit versionné.
-- Les builds et tests CI ne remplacent pas un essai sur appareils : le réseau réel, le micro, le Bluetooth, l'écoute et l'écho restent à valider sur téléphone et PC. L'APK de debug et l'installateur Windows ne sont pas signés pour une distribution commerciale.
+- Les builds et tests CI ne remplacent pas un essai sur appareils : le réseau réel, le micro, le Bluetooth, l'écoute et l'écho restent à valider sur téléphone et PC. Les binaires Windows fournis ne portent pas de signature de code éditeur.
 
 ## Builds sur GitHub Actions
 
