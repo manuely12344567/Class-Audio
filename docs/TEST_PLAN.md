@@ -1,6 +1,6 @@
 # Plan de validation — ClasseAudio
 
-Les validations de prévisualisation V2 déjà réussies sont : compilation Android `:app:assembleDebug`, tests JVM `:app:testDebugUnitTest` (5 tests), et compilation WPF .NET 10 avec ciblage Windows depuis le sandbox Linux. Elles ne valident pas l'exécution sur un PC Windows, un installateur, ni les scénarios matériels/réseau ci-dessous. Aucun test sur appareil Android n'a été réalisé.
+Le commit V2 `3f9fd0e` a passé les workflows GitHub Actions Android et Windows : run [45852509645](https://github.com/manuely12344567/Class-Audio/actions/runs/45852509645) (APK + 5 tests JVM) et run [45852509528](https://github.com/manuely12344567/Class-Audio/actions/runs/45852509528) (package Windows). Ces builds ne valident pas les scénarios matériels/réseau ci-dessous. Aucun test sur appareil Android ni sur PC Windows réel n'a été réalisé.
 
 ## 0. Build et démarrage sur Windows
 
